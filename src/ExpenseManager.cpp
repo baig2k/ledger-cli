@@ -1,6 +1,7 @@
 #include "ExpenseManager.h"
 #include "sqlite3.h"
 #include <iostream>
+#include <cstdlib>
 using namespace std;
 
 // Helper 1: SQLite calls this automatically for every row found in listExpenses()
@@ -180,4 +181,152 @@ void ExpenseManager::filterByCategory(string category) {
 
     cout << "\n";
     sqlite3_close(db);
+}
+
+// ============================================================================
+// MAX-HEAP IMPLEMENTATION (Dynamic Array Priority Queue)
+// ============================================================================
+
+ExpenseMaxHeap::ExpenseMaxHeap(int initial_cap) {
+    capacity = initial_cap;
+    size = 0;
+    heap_arr = new ExpenseItem[capacity];
+}
+
+ExpenseMaxHeap::~ExpenseMaxHeap() {
+    delete[] heap_arr;
+}
+
+void ExpenseMaxHeap::resizeHeap() {
+    int new_cap = capacity * 2;
+    ExpenseItem* new_arr = new ExpenseItem[new_cap];
+    for (int i = 0; i < size; i++) {
+        new_arr[i] = heap_arr[i];
+    }
+    delete[] heap_arr;
+    heap_arr = new_arr;
+    capacity = new_cap;
+}
+
+void ExpenseMaxHeap::swapItems(int idx1, int idx2) {
+    ExpenseItem temp = heap_arr[idx1];
+    heap_arr[idx1] = heap_arr[idx2];
+    heap_arr[idx2] = temp;
+}
+
+bool ExpenseMaxHeap::isEmpty() {
+    return size == 0;
+}
+
+int ExpenseMaxHeap::getSize() {
+    return size;
+}
+
+// SIFT-UP (Heapify-Up): Places new item at the end and bubbles it up if larger than parent
+void ExpenseMaxHeap::insert(int id, string category, int amount, string note) {
+    if (size == capacity) {
+        resizeHeap();
+    }
+
+    // 1. Place the new expense at the very bottom-right leaf of the tree
+    int current = size;
+    heap_arr[current] = ExpenseItem(id, category, amount, note);
+    size++;
+
+    // 2. Bubble up: While current item's amount > parent's amount, swap them!
+    while (current > 0) {
+        int parent = (current - 1) / 2;
+        if (heap_arr[current].amount > heap_arr[parent].amount) {
+            swapItems(current, parent);
+            current = parent;
+        } else {
+            break; // Max-Heap property is satisfied!
+        }
+    }
+}
+
+// SIFT-DOWN (Heapify-Down): Removes root (max item) and sinks last item down to proper spot
+ExpenseItem ExpenseMaxHeap::extractMax() {
+    if (size == 0) return ExpenseItem();
+
+    // 1. Save the maximum item sitting at index 0
+    ExpenseItem max_item = heap_arr[0];
+
+    // 2. Move the last item in the heap to index 0 and reduce size
+    heap_arr[0] = heap_arr[size - 1];
+    size--;
+
+    // 3. Sink down: Swap with the larger of its two children until it's >= both children
+    int current = 0;
+    while (true) {
+        int left_child  = (2 * current) + 1;
+        int right_child = (2 * current) + 2;
+        int largest     = current;
+
+        if (left_child < size && heap_arr[left_child].amount > heap_arr[largest].amount) {
+            largest = left_child;
+        }
+        if (right_child < size && heap_arr[right_child].amount > heap_arr[largest].amount) {
+            largest = right_child;
+        }
+
+        if (largest != current) {
+            swapItems(current, largest);
+            current = largest;
+        } else {
+            break; // In the right spot!
+        }
+    }
+
+    return max_item;
+}
+
+// SQLite Callback: Pushes every database row into our Max-Heap in RAM
+int loadRowIntoHeap(void* data, int col_count, char** values, char** col_names) {
+    (void)col_count; (void)col_names;
+
+    ExpenseMaxHeap* heap = (ExpenseMaxHeap*)data;
+
+    int id     = atoi(values[0]);
+    string cat = values[1];
+    int amount = atoi(values[2]);
+    string nt  = values[3];
+
+    heap->insert(id, cat, amount, nt);
+    return 0;
+}
+
+// 7. TOP K EXPENSES: Extracts the K largest expenses using our Max-Heap
+void ExpenseManager::showTopExpenses(int k) {
+    sqlite3* db;
+    if (sqlite3_open(db_path, &db) != SQLITE_OK) return;
+
+    ExpenseMaxHeap max_heap;
+    string sql = "SELECT id, category, amount, note FROM expenses;";
+    char* error_msg = 0;
+
+    // Pass &max_heap so loadRowIntoHeap inserts every row into our Max-Heap!
+    sqlite3_exec(db, sql.c_str(), loadRowIntoHeap, &max_heap, &error_msg);
+    sqlite3_close(db);
+
+    if (max_heap.isEmpty()) {
+        cout << "\n(No expenses recorded yet)\n\n";
+        return;
+    }
+
+    cout << "\n=== Top " << k << " Highest Expenses (via RAM Max-Heap) ===\n";
+    cout << "Rank | ID  | Amount     | Category     | Note\n";
+    cout << "-----+-----+------------+--------------+----------------------------\n";
+
+    int rank = 1;
+    while (rank <= k && !max_heap.isEmpty()) {
+        ExpenseItem top = max_heap.extractMax();
+        cout << "#" << rank << "   | #"
+             << top.id << "  | Rs. "
+             << top.amount << "      | "
+             << top.category << "          | "
+             << top.note << "\n";
+        rank++;
+    }
+    cout << "\n";
 }

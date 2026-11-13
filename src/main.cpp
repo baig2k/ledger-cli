@@ -11,6 +11,7 @@ void printHelp() {
     cout << "  filter <category>               : View expenses in one category (SQL WHERE)\n";
     cout << "  update <id> <new_amount>        : Change the amount of expense #id\n";
     cout << "  delete <id>                     : Delete expense #id\n\n";
+    cout << "  top <k>                         : View top K highest expenses (Max-Heap)\n";
 }
 
 // Converts digit strings like "450" into int 450 using ASCII math
@@ -95,6 +96,18 @@ int main(int argc, char* argv[]) {
         }
         ledger.deleteExpense(id);
     }
+    // 7. TOP K: ./build/ledger.exe top <k>
+else if (command == "top") {
+    int k = 3; // Default to Top 3 if user just types "./build/ledger.exe top"
+    if (argc >= 3) {
+        k = textToInt(argv[2]);
+        if (k <= 0) {
+            cout << "[Error] Please provide a valid positive number for K!\n";
+            return 1;
+        }
+    }
+    ledger.showTopExpenses(k);
+}
     else {
         cout << "[Error] Unknown command: '" << command << "'\n";
         printHelp();
